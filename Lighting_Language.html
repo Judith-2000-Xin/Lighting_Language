@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8" />
@@ -40,13 +40,42 @@
   .likert7 input[type="radio"]:checked{ outline:3px solid var(--primary); background:rgba(106,166,255,.18) }
   .likert7 .num{ font-size:.75rem; color:var(--muted); line-height:1; }
 
-  .scene-wrap{position:relative; width:100%; max-width:1100px; margin:0 auto; border-radius:1rem; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.35)}
-  .scene-img{width:100%; display:block}
-  canvas#lightCanvas{position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; mix-blend-mode:screen}
+  /* ===== 情境區 ===== */
+  .scene-wrap{
+    position:relative; width:100%; max-width:1100px; margin:0 auto;
+    border-radius:1rem; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.35);
+    aspect-ratio: 16/9;                /* 固定比例，避免裝置不同導致變形 */
+    background:#0c1218;                /* 圖片未載入時的底色 */
+  }
+  .scene-img{ width:100%; height:100%; display:block; object-fit:cover; }
+  canvas#lightCanvas{
+    position:absolute; left:0; top:0; width:100%; height:100%;
+    pointer-events:none; mix-blend-mode:screen
+  }
+
   .dot{width:.65rem;height:.65rem;border-radius:999px;background:#223046;margin:0 .25rem}
   .dot.active{background:var(--primary)}
   .select-light{color:#111;background:#fff}
   .select-light option{color:#111;background:#fff}
+
+  /* ===== RWD：小螢幕優化 ===== */
+  @media (max-width: 768px){
+    .card{ padding:1rem; }
+    .likert7{
+      grid-template-columns:max-content repeat(7,32px) max-content;
+      column-gap:.25rem;
+    }
+    .likert7 input[type="radio"]{ width:22px; height:22px; border-radius:.5rem; }
+    .likert7 .num{ font-size:.7rem; }
+    .likert7 .label{ font-size:.8rem; }
+  }
+  @media (max-width: 480px){
+    .likert7{
+      grid-template-columns:max-content repeat(7,26px) max-content;
+      column-gap:.2rem;
+    }
+    .likert7 .label{ font-size:.75rem; }
+  }
 </style>
 </head>
 <body class="min-h-screen">
@@ -63,7 +92,8 @@
 const GAS_URL = "https://script.google.com/macros/s/AKfycbzR2Jy492b_ArxDsEUIweH5avvOoe6PZoSL3xwbmDMLtH978reggqW5hS6AyCZQTXZL/exec";
 
 /*** ---------- 基礎設定 ---------- ***/
-const SCENE_SRC = "lamp simulate screen.png";
+/* 重要：把實體圖片檔名改成沒有空白的 lamp_simulate_screen.png */
+const SCENE_SRC = "lamp_simulate_screen.png";
 
 function cctToRGB(cctK){
   let t=cctK/100, r,g,b;
@@ -376,13 +406,13 @@ function renderMode(idx){
   document.getElementById("prevBtn").addEventListener("click", ()=> idx>0?renderMode(idx-1):renderBasic());
   document.getElementById("nextBtn").addEventListener("click", ()=> idx<MODES.length-1?renderMode(idx+1):renderFinish());
 
-  // 圖片載入後啟動光效
+  // 圖片載入後啟動光效（行動裝置上需強化等待條件）
   const img = document.getElementById("sceneImg");
   function safeStart(){
     const wrap = document.getElementById("sceneWrap");
     const r = wrap.getBoundingClientRect();
-    if(r.width>0 && r.height>0){ startLighting(m.anim); }
-    else requestAnimationFrame(safeStart);
+    if(r.width>0 && r.height>0 && img.naturalWidth>0){ startLighting(m.anim); }
+    else setTimeout(safeStart, 100);
   }
   if(img.complete && img.naturalWidth>0) safeStart();
   else img.addEventListener("load", safeStart, {once:true});
@@ -393,12 +423,19 @@ function startLighting(A){
   cvs = document.getElementById("lightCanvas");
   ctx = cvs.getContext("2d");
 
+  // 保證畫布跟著容器縮放（行動裝置）
+  cvs.style.width = "100%";
+  cvs.style.height = "100%";
+
   function resize(){
     const r=wrap.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
-    cvs.width = Math.round(r.width*dpr); cvs.height = Math.round(r.height*dpr);
+    cvs.width = Math.max(1, Math.round(r.width*dpr));
+    cvs.height = Math.max(1, Math.round(r.height*dpr));
     W=cvs.width; H=cvs.height; deskY = H*0.695;
   }
-  resize(); addEventListener("resize", resize);
+  resize(); 
+  addEventListener("resize", resize);
+  addEventListener("orientationchange", ()=>setTimeout(resize, 150));
   if(!W||!H){ requestAnimationFrame(()=>startLighting(A)); return; }
 
   let pom = null;
@@ -459,11 +496,11 @@ function startLighting(A){
       }
     }
 
-    // 桌面柔邊光暈
+    /* 桌面柔邊光暈 */
     drawDeskEllipse(bx,by,baseR*1.5,1.0,col,br);
     ctx.restore();
 
-    // 牆面漫射
+    /* 牆面漫射 */
     const lampWallX = W * 0.25, lampWallY = H * 0.50;
     const R = Math.hypot(W,H) * 1.5;
     const g = ctx.createRadialGradient(lampWallX, lampWallY*0.9, 0, lampWallX, lampWallY, R);
@@ -531,9 +568,8 @@ function renderFinish(){
         method: 'POST',
         headers: {'Content-Type':'text/plain;charset=utf-8'},
         body: bodyText,
-        // keepalive 讓頁面關閉時也盡量送得出去（支援的瀏覽器才會用）
         keepalive: true,
-        mode: 'cors' // 可省略；用 text/plain 就不會有預檢
+        mode: 'cors'
       }).catch(()=>{ /* 靜默失敗，不影響 UI */ });
     }
   }catch(e){ /* 靜默失敗 */ }
